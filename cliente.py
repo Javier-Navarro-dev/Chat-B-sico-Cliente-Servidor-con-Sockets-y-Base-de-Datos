@@ -1,11 +1,12 @@
 """
 Cliente de chat básico. Se conecta al servidor en localhost:5000,
-envía múltiples mensajes hasta que el usuario escribe 'éxito' y
-muestra la respuesta del servidor para cada envío.
+envía múltiples mensajes hasta que el usuario escribe 'exito' o 'salir',
+y muestra la respuesta del servidor para cada envío.
 """
 
 import socket
 import sys
+import unicodedata
 
 # ------------------------- CONFIGURACIÓN -------------------------
 HOST = "127.0.0.1"
@@ -13,6 +14,20 @@ PORT = 5000
 BUFFER = 1024
 
 
+# ------------------------- UTILIDADES -------------------------
+def normalizar(texto: str) -> str:
+    """
+    Saca tildes/diacríticos y pasa a minúsculas.
+    Sirve para comparar comandos como 'exito', 'éxito', 'EXITO', 'salir', etc.
+    """
+    sin_tildes = ''.join(
+        c for c in unicodedata.normalize('NFD', texto)
+        if unicodedata.category(c) != 'Mn'
+    )
+    return sin_tildes.lower().strip()
+
+
+# ------------------------- SOCKET -------------------------
 def conectar(host: str, port: int) -> socket.socket:
     """Crea y conecta un socket TCP al servidor."""
     try:
@@ -29,18 +44,21 @@ def conectar(host: str, port: int) -> socket.socket:
 
 
 def enviar_mensajes(cliente: socket.socket) -> None:
-    """Bucle de envío de mensajes hasta que el usuario escriba 'éxito'."""
+    """Bucle de envío de mensajes hasta que el usuario escriba 'exito' o 'salir'."""
     try:
         while True:
             mensaje = input("> ").strip()
             if not mensaje:
                 continue
 
+            # Normalizamos para comparar sin importar mayúsculas ni tildes
+            comando = normalizar(mensaje)
+
             # Enviamos el mensaje al servidor
             cliente.sendall(mensaje.encode("utf-8"))
 
-            # Si el usuario escribe 'éxito', terminamos
-            if mensaje.lower() == "éxito":
+            # Si el usuario escribe 'exito' o 'salir', terminamos
+            if comando in ("exito", "salir"):
                 print("[CLIENTE] Cerrando sesión...")
                 break
 
@@ -53,10 +71,11 @@ def enviar_mensajes(cliente: socket.socket) -> None:
         print(f"[ERROR] {e}")
 
 
+# ------------------------- MAIN -------------------------
 def main():
     cliente = conectar(HOST, PORT)
     try:
-        print("Escribí tus mensajes (escribí 'éxito' para salir):")
+        print("Escribí tus mensajes (escribí 'exito' o 'salir' para terminar):")
         enviar_mensajes(cliente)
     finally:
         cliente.close()

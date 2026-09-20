@@ -7,12 +7,25 @@ en una base de datos y responde con una confirmación al cliente.
 import socket
 import sqlite3
 import datetime
-import os
+import unicodedata
 
 # ------------------------- CONFIGURACIÓN GLOBAL -------------------------
 HOST = "127.0.0.1"      # localhost
 PORT = 5000             # puerto de escucha
 DB_PATH = "chat.db"     # ruta del archivo SQLite
+
+
+# ------------------------- UTILIDADES -------------------------
+def normalizar(texto: str) -> str:
+    """
+    Saca tildes/diacríticos y pasa a minúsculas.
+    Sirve para comparar comandos como 'exito', 'éxito', 'EXITO', 'salir', etc.
+    """
+    sin_tildes = ''.join(
+        c for c in unicodedata.normalize('NFD', texto)
+        if unicodedata.category(c) != 'Mn'
+    )
+    return sin_tildes.lower().strip()
 
 
 # ------------------------- BASE DE DATOS -------------------------
@@ -47,8 +60,8 @@ def guardar_mensaje(conexion: sqlite3.Connection, contenido: str, ip_cliente: st
     """
     Guarda un mensaje en la DB y devuelve el timestamp usado.
     """
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cursor = conexion.cursor()
         cursor.execute(
             "INSERT INTO mensajes (contenido, fecha_envio, ip_cliente) VALUES (?, ?, ?)",
@@ -56,18 +69,17 @@ def guardar_mensaje(conexion: sqlite3.Connection, contenido: str, ip_cliente: st
         )
         conexion.commit()
         print(f"[DB] Guardado: '{contenido}' de {ip_cliente} a las {timestamp}")
-        return timestamp
     except sqlite3.Error as e:
+        # Si falla el guardado, avisamos pero no rompemos la respuesta al cliente
         print(f"[ERROR DB] No se pudo guardar el mensaje: {e}")
-        # Devolvemos el timestamp igual para no romper la respuesta al cliente
-        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return timestamp
 
 
 # ------------------------- SOCKET -------------------------
 def inicializar_socket(host: str, port: int) -> socket.socket:
     """
     Configura el socket TCP/IP del servidor.
-    Maneja errores como 'puerto ocupado' (OSError / errno 48 / 98).
+    Maneja errores como 'puerto ocupado' (OSError).
     """
     try:
         # AF_INET = IPv4 ; SOCK_STREAM = TCP
@@ -117,9 +129,12 @@ def aceptar_conexiones(servidor: socket.socket, db: sqlite3.Connection) -> None:
                     if not mensaje:
                         continue
 
-                    # Si el cliente manda "éxito", cerramos también desde el server
-                    if mensaje.lower() == "éxito":
-                        print(f"[SOCKET] Cliente {ip_cliente} envió 'éxito'. Cerrando.")
+                    # Normalizamos para aceptar 'exito', 'éxito', 'salir' (mayúsculas incluidas)
+                    comando = normalizar(mensaje)
+
+                    # Si el cliente manda 'exito' o 'salir', cerramos también desde el server
+                    if comando in ("exito", "salir"):
+                        print(f"[SOCKET] Cliente {ip_cliente} envió '{mensaje}'. Cerrando.")
                         break
 
                     # Persistimos el mensaje en la DB
